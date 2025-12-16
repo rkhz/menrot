@@ -1,0 +1,22 @@
+{
+    "model": {
+        "name": "ViT3d",
+        "config": {
+            "image_size": 32,
+            "patch_size": 8,
+            "frame_size": 32,
+            "frame_patch_size": 8,
+            "num_classes": null,
+            "depth": 6,
+            "embed_dim": 384,
+            "hidden_dim": 1536,
+            "heads": 6,
+            "channels": 64,
+            "dropout": 0.3,
+            "embed_dropout": 0.3,
+            "pool": "none",
+            "groups": 64
+        }
+    }
+}
+
