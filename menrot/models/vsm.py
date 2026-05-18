@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+from pathlib import Path
 
-from menrot.models.transformer import AutoregTransformer, ViT3d
+from menrot.nn import VisionTransformer3d, AutoregTransformer
 from menrot.utils.config import load_model_from_config
 
 __all__ = [
@@ -9,14 +10,22 @@ __all__ = [
 ]
 
 class VisionSymbolicModel(nn.Module):
-    def __init__(self, config_path, model_config=None, device=None):
+    def __init__(
+        self, 
+        model_config_path: Path = Path(__file__).parent/'configs/vsm_encoder.json', 
+        model_config=None, 
+        device=None
+    ):
         super().__init__()
         self.device = device
         if model_config is not None:
             self.model_config = model_config
-            self.encoder = ViT3d(**self.model_config)
+            self.encoder = VisionTransformer3d(**self.model_config)
         else:
-            self.encoder, self.model_config = load_model_from_config(model_class=ViT3d, config_path=config_path)
+            self.encoder, self.model_config = load_model_from_config(
+                model_class=VisionTransformer3d, 
+                config_path=model_config_path
+            )
         
         self.decoder = AutoregTransformer(
             embed_dim=self.model_config['embed_dim'], 

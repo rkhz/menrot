@@ -1,10 +1,9 @@
-from .mlp import MultiLayerPerceptron
+from .eqnr import NeuralRenderer
 from .vsm import VisionSymbolicModel
-from .transformers import ViT3d, AutoregTransformer
+from .mlp import MultiLayerPerceptron
 
 __all__ = [
-    "MultiLayerPerceptron",
+    "NeuralRenderer",
     "VisionSymbolicModel",
-    "ViT3d",
-    "AutoregTransformer"
+    "MultiLayerPerceptron"
 ]

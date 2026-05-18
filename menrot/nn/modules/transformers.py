@@ -1,11 +1,10 @@
 import torch
 from torch import nn
-import math
-from einops import rearrange, repeat
 import einops.layers.torch as einops_nn
+from einops import rearrange, repeat
 
 __all__ = [
-    "ViT3d",
+    "VisionTransformer3d",
     "AutoregTransformer"
 ]
 
@@ -28,7 +27,7 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
-class Attention(nn.Module):
+class MultiheadAttention(nn.Module):
     def __init__(self, embed_dim, heads=8, head_dim=64, dropout = 0.):
         super().__init__()
         inner_dim = head_dim *  heads
@@ -84,14 +83,13 @@ class TransformerEncoder(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                Attention(embed_dim, heads = heads, head_dim = head_dim, dropout = dropout),
+                MultiheadAttention(embed_dim, heads = heads, head_dim = head_dim, dropout = dropout),
                 FeedForward(embed_dim, hidden_dim, dropout = dropout)
             ]))
             
         self.cls_tokens = None
 
     def forward(self, x, mask=None):
-        #print(x.shape)
         self.cls_tokens = []
         for attn, ff in self.layers:
             x = attn(x, mask=mask) + x
@@ -131,7 +129,7 @@ class PatchEmbedding3d(torch.nn.Module):
         return self.patch_embed(x)
 
 #--- transofrmers class ---#
-class ViT3d(nn.Module):
+class VisionTransformer3d(nn.Module):
     def __init__(self, 
                  image_size, 
                  patch_size, 
@@ -229,8 +227,8 @@ class AutoregTransformer(nn.Module):
         self.sos_token_id = vocab_size  # e.g. token ID 6 for <SOS>, vocab = 0..5
 
         # Token embedding for vocabulary tokens + 1 for <SOS>
-        self.token_embedding = nn.Embedding(vocab_size+1, embed_dim)  # [vocab+1, D]
-        self.pos_embedding = nn.Parameter(torch.randn(seq_len, embed_dim)) # [seq_len, D]
+        self.token_embed = nn.Embedding(vocab_size+1, embed_dim)  # [vocab+1, D]
+        self.pos_embed = nn.Parameter(torch.randn(seq_len, embed_dim)) # [seq_len, D]
 
         # Transformer decoder: memory for cross-attention comes from ViT output tokens
         self.transformer_decoder = nn.TransformerDecoder(
@@ -252,11 +250,11 @@ class AutoregTransformer(nn.Module):
         _, T = input_tokens.size()
 
         # Embed tokens + add positional encoding
-        tok_emb = self.token_embedding(input_tokens)        # [B, T, D]
-        pos_emb = self.pos_embedding[:T, :]                 # [T, D]
+        token_embed = self.token_embed(input_tokens)      # [B, T, D]
+        pos_embed = self.pos_embed[:T, :]                 # [T, D]
 
         # broadcast → [B, T, D]
-        tok_emb += pos_emb.unsqueeze(0)    # [B, T, D] + [1, T, D] → [B, T, D]
+        token_embed += pos_embed.unsqueeze(0)    # [B, T, D] + [1, T, D] → [B, T, D]
 
         # memory 
         if memory.dim() == 2:
@@ -264,7 +262,7 @@ class AutoregTransformer(nn.Module):
 
 
         decoded = self.transformer_decoder(
-            tgt=tok_emb,            # [B, T, D]
+            tgt=token_embed,        # [B, T, D]
             memory=memory,          # [B, 1, D]
             tgt_mask=tgt_mask       # [T, T]
         ) # → [B, T, D]

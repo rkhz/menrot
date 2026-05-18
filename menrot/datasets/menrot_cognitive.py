@@ -7,14 +7,14 @@ from tqdm import tqdm
 from PIL import Image
 from shaperenderer.geometry import ShapeString
 
-from menrot.utils.data import NeroskelDataset
+from menrot.utils.data import MenrotDataset
 
 __all__ = [
-    "CogShapeSkel",
-    "EncodedCogShapeSkel"
+    "MenrotCognitive",
+    "MenrotCognitiveEncoded"
 ]
 
-class CogShapeSkel(NeroskelDataset):
+class MenrotCognitive(MenrotDataset):
     def __init__(self, root_dir, split='train', transform=None):
         super().__init__(root_dir, split, transform)
 
@@ -42,8 +42,8 @@ class CogShapeSkel(NeroskelDataset):
         return image_1, image_2, {'skeletons': [skeleton_1, skeleton_2], 'delta_phi': delta_phi, 'is_mirror': is_mirror, 'rot_qdrt': rot_qdrt, 'azimuth_target':azimuth_target, 'azimuth_source': azimuth_source}
 
 
-class EncodedCogShapeSkel(torch.utils.data.Dataset):
-    def __init__(self, dataset : 'CogShapeSkel', encoder_0, encoder_1):
+class MenrotCognitiveEncoded(torch.utils.data.Dataset):
+    def __init__(self, dataset : 'MenrotCognitive', encoder_0, encoder_1):
         self.encoder_0 = encoder_0
         self.encoder_1 = encoder_1
         

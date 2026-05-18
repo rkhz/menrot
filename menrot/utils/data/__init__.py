@@ -1,14 +1,13 @@
-from .dataset import NeroskelDataset
-from .sampler import RandomSkelPairSampler
-from .builder import ShapeSkelBuilder, CogShapeSkelBuilder, UniformShapeSkelBuilder, ShapeSkelRenderBuilder
+from .dataset import MenrotDataset
+from .sampler import RandomSymbolicPairSampler
+from .builder import MenrotSymbolicBuilder, MenrotCognitiveBuilder, MenrotRendererBuilder
 from .distributed import DistributedWrapperSampler
 
 __all__ = [
-    "NeroskelDataset",
-    "RandomSkelPairSampler",
+    "MenrotDataset",
+    "RandomSymbolicPairSampler",
     "DistributedWrapperSampler",
-    "ShapeSkelBuilder",
-    "UniformShapeSkelBuilder",
-    "CogShapeSkelBuilder",
-    "ShapeSkelRenderBuilder"
+    "MenrotSymbolicBuilder",
+    "MenrotCognitiveBuilder",
+    "MenrotRendererBuilder"
 ]

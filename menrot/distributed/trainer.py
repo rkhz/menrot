@@ -1,7 +1,7 @@
 import os
 import time 
 import pandas as pd
-import numpy as np 
+import numpy as np
 import matplotlib.pyplot as plt 
 from dataclasses import dataclass, asdict
 from typing import Optional, Any, Dict
@@ -14,18 +14,19 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 
-from menrot.models import ViT3d, VisionSymbolicModel
+from menrot.nn import VisionTransformer3d
+from menrot.models import VisionSymbolicModel
 from menrot.representations import SpatialRep
 from menrot.optim import SchedulerHandler
 from menrot.utils.checkpoint import Snapshot
 from menrot.utils.data import (
     DistributedWrapperSampler, 
-    RandomSkelPairSampler
+    RandomSymbolicPairSampler
 )
     
 
 __all__ = [
-    "Trainer",
+    "_Trainer",
     "TrainerMLP",
     "TrainerViT",
     "TrainerVSM",
@@ -47,7 +48,7 @@ class TrainerConfig:
     snapshot_path: Optional[str] = None
 
 
-class Trainer:
+class _Trainer:
     def __init__(
         self, 
         trainer_config: TrainerConfig, 
@@ -63,7 +64,7 @@ class Trainer:
         self.local_rank = int(os.environ["LOCAL_RANK"]) 
         self.global_rank = int(os.environ["RANK"]) 
         
-        # data stuff
+        # data part
         self.train_loader = self._prepare_dataloader(train_dataset, train=True)
         self.valid_loader = self._prepare_dataloader(valid_dataset, train=False) if valid_dataset else None
         
@@ -87,28 +88,6 @@ class Trainer:
         self.model = model.to(self.local_rank)
         self.model = DistributedDataParallel(self.model, device_ids=[self.local_rank])
 
-    def _prepare_dataloader(self, dataset: Dataset, train=True):
-        if train:
-            return DataLoader(
-                dataset,
-                batch_size=self.config.batch_size,
-                pin_memory=True,
-                shuffle=False,
-                num_workers=self.config.data_loader_workers,
-                sampler=DistributedWrapperSampler(
-                    RandomSkelPairSampler(dataset)
-                ),
-                drop_last=True
-            )
-        else:
-            return DataLoader(
-                dataset,
-                batch_size=self.config.batch_size,
-                pin_memory=True,
-                shuffle=False,
-                drop_last=True
-            )
-
     def _load_snapshot(self):
         try:
             snapshot = Snapshot.load_from(self.config.snapshot_path)
@@ -121,7 +100,6 @@ class Trainer:
         print(f"Resuming training from snapshot at Epoch {self.epochs_run}")
 
     def _save_snapshot(self, epoch, path):
-        # capture snapshot
         model = self.model
         raw_model = model.module if hasattr(model, "module") else model
         snapshot = Snapshot(
@@ -131,12 +109,11 @@ class Trainer:
             finished_epoch=epoch
         )
         
-        # save snapshot
         snapshot = asdict(snapshot)
         torch.save(snapshot, os.path.join(self.config.log_path, path))
             
         print(f"-> Snapshot saved at epoch {epoch}: {path}")
-    
+   
     def _save_training_history(self):
         df_loss = pd.DataFrame(self.losses)
         df_loss.to_csv(os.path.join(self.config.log_path, f'{self.criterion._get_name()}_history.csv'), index=False) 
@@ -158,49 +135,28 @@ class Trainer:
         plt.tight_layout()
         plt.legend()
         plt.savefig(os.path.join(self.config.log_path, f'log_{self.criterion._get_name()}.png'))
-
-    def _format_epoch_log(self, epoch, time_start, time_end, train=True):
-        if train:
-            return f"EPOCH {epoch:03d}/{self.config.max_epochs:03d} - TRAIN -- loss: {self.losses['train'][epoch-1]:.4f} -- {time_end - time_start:.4f}s/epoch"
-        else:
-            return f"\n|____________ - VALID -- loss: {self.losses['val'][epoch-1]:.4f} -- {time_end- time_start:.4f}s/epoch\n"
-
+        
     def _sync_metric_across_processes(self, metric):
-        # Sync across processes
         metric_tensor = torch.tensor(metric, device=self.local_rank)
         dist.all_reduce(metric_tensor, op=dist.ReduceOp.SUM)
         metric_tensor /= dist.get_world_size()
         return metric_tensor.item()
     
-    def _run_batch(self, batch_data, train: bool = True) -> float:
-        inputs, targets = batch_data
-        inputs = inputs.to(self.local_rank)
-        targets = targets.to(self.local_rank)
+    def _prepare_dataloader(self, **kwargs):
+        """Must be implemented by subclass."""
+        raise NotImplementedError
 
-        with torch.set_grad_enabled(train):
-            outputs = self.model(inputs)
-            loss = self.criterion(outputs, targets)
-                
-        if train:
-            self.optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            self.optimizer.step()
-        
-        return loss.item()
+    def _format_epoch_log(self, **kwargs):
+        """Must be implemented by subclass."""
+        raise NotImplementedError
+    
+    def _run_batch(self, **kwargs):
+        """Must be implemented by subclass."""
+        raise NotImplementedError
 
-    def _run_epoch(self, epoch: int, dataloader: DataLoader, train: bool = True):
-        if train:
-            dataloader.sampler.set_epoch(epoch)
-        
-        epoch_loss = 0.0
-        for _, batch in enumerate(dataloader):
-            batch_loss = self._run_batch(batch, train)
-            epoch_loss += batch_loss
-
-        avg_epoch_loss = epoch_loss / len(dataloader)
-        self.losses['train' if train else 'val'].append(
-            self._sync_metric_across_processes(avg_epoch_loss)
-        )
+    def _run_epoch(self, **kwargs):
+        """Must be implemented by subclass."""
+        raise NotImplementedError
    
     def run(self):
         for epoch in range(self.epochs_run, self.config.max_epochs):
@@ -235,7 +191,7 @@ class Trainer:
             self._save_training_history()
 
 
-class TrainerMLP(Trainer):
+class TrainerMLP(_Trainer):
     def __init__(
         self, 
         trainer_config: TrainerConfig, 
@@ -306,7 +262,7 @@ class TrainerMLP(Trainer):
         else:
             return preds
         
-    def _run_batch(self, batch_data, train: bool = True) -> float:    
+    def _run_batch(self, batch_data, train: bool = True):    
         inputs_1, inputs_2, targets = batch_data
         
         inputs_1 = inputs_1.to(self.local_rank)
@@ -369,11 +325,11 @@ class TrainerMLP(Trainer):
         )
      
              
-class TrainerViT(Trainer):
+class TrainerVSM(_Trainer):
     def __init__(
         self, 
         trainer_config: TrainerConfig, 
-        model: ViT3d, 
+        model: VisionSymbolicModel, 
         encoder_0: SpatialRep,
         scheduler_handler: SchedulerHandler, 
         optimizer, 
@@ -398,6 +354,28 @@ class TrainerViT(Trainer):
             'char_acc': {'train':[], 'val':[]}
         }
 
+    def _prepare_dataloader(self, dataset: Dataset, train=True):
+        if train:
+            return DataLoader(
+                dataset,
+                batch_size=self.config.batch_size,
+                pin_memory=True,
+                shuffle=False,
+                num_workers=self.config.data_loader_workers,
+                sampler=DistributedWrapperSampler(
+                    RandomSymbolicPairSampler(dataset)
+                ),
+                drop_last=True
+            )
+        else:
+            return DataLoader(
+                dataset,
+                batch_size=self.config.batch_size,
+                pin_memory=True,
+                shuffle=False,
+                drop_last=True
+            )
+            
     def _save_training_history(self):
         super()._save_training_history()
 
@@ -430,7 +408,7 @@ class TrainerViT(Trainer):
         else:
             return f"\n|____________ - VALID -- loss: {self.losses['val'][epoch-1]:.4f} -- acc: {self.metrics['skel_acc']['val'][epoch-1]:.4f} -- {time_end- time_start:.4f}s/epoch\n"
 
-    def _run_batch(self, batch_data, train: bool = True) -> float:    
+    def _run_batch(self, batch_data, train: bool = True):    
         inputs, _, targets, azimuth_source, _ = batch_data
         inputs = inputs.to(self.local_rank)
         targets = targets.to(self.local_rank)
@@ -441,9 +419,10 @@ class TrainerViT(Trainer):
                 self.encoder_0(
                     inputs, 
                     azimuth= azimuth_source if train else None
-                )
+                ),
+                tgt=targets 
             ) 
-            loss = self.criterion(outputs.reshape(-1, 6), targets.reshape(-1))            
+            loss = self.criterion(outputs.reshape(-1, self.model.module.decoder.vocab_size), targets.reshape(-1))            
             
             # accuracy metric:
             preds = outputs.argmax(dim=-1)
@@ -453,6 +432,7 @@ class TrainerViT(Trainer):
         if train:
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
            
         return loss.item(), skel_acc.item(), char_acc.item()
@@ -489,11 +469,12 @@ class TrainerViT(Trainer):
             self._sync_metric_across_processes(epoch_char_acc)
         )
 
-class TrainerVSM(TrainerViT):
+
+class TrainerViT(TrainerVSM):
     def __init__(
         self, 
         trainer_config: TrainerConfig, 
-        model: VisionSymbolicModel, 
+        model: VisionTransformer3d, 
         encoder_0: SpatialRep,
         scheduler_handler: SchedulerHandler, 
         optimizer, 
@@ -511,8 +492,8 @@ class TrainerVSM(TrainerViT):
             train_dataset=train_dataset, 
             valid_dataset=valid_dataset
         )
-        
-    def _run_batch(self, batch_data, train: bool = True) -> float:    
+
+    def _run_batch(self, batch_data, train: bool = True):    
         inputs, _, targets, azimuth_source, _ = batch_data
         inputs = inputs.to(self.local_rank)
         targets = targets.to(self.local_rank)
@@ -523,10 +504,9 @@ class TrainerVSM(TrainerViT):
                 self.encoder_0(
                     inputs, 
                     azimuth= azimuth_source if train else None
-                ),
-                tgt=targets 
+                )
             ) 
-            loss = self.criterion(outputs.reshape(-1, self.model.module.decoder.vocab_size), targets.reshape(-1))            
+            loss = self.criterion(outputs.reshape(-1, 6), targets.reshape(-1))            
             
             # accuracy metric:
             preds = outputs.argmax(dim=-1)
@@ -536,7 +516,6 @@ class TrainerVSM(TrainerViT):
         if train:
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
            
         return loss.item(), skel_acc.item(), char_acc.item()

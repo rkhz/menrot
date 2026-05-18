@@ -4,16 +4,15 @@ import torch
 from PIL import Image
 from shaperenderer.geometry import ShapeString
 
-from menrot.utils.data import NeroskelDataset
+from menrot.utils.data import MenrotDataset
 
 __all__ = [
-    "ShapeSkel",
+    "MenrotSymbolic",
 ]
  
-class ShapeSkel(NeroskelDataset):
+class MenrotSymbolic(MenrotDataset):
     def __init__(self, root_dir, split='train', transform=None):
         super().__init__(root_dir, split, transform)
-
 
     def __getitem__(self, idx):
         data_id = self.metadata['id'][idx]

@@ -1,10 +1,9 @@
-from .trainer import Trainer, TrainerMLP, TrainerViT, TrainerVSM, TrainerConfig
+from .trainer import TrainerConfig, TrainerMLP, TrainerViT, TrainerVSM
 from .utils import ddp_setup, ddp_cleanup
 
 __all__ = [
-    "Trainer",
+    "TrainerConfig",
     "TrainerMLP",
     "TrainerViT",
     "TrainerVSM",
-    "TrainerConfig"
 ]

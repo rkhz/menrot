@@ -4,10 +4,10 @@ import random
 from itertools import chain
 
 __all__ = [
-    "RandomSkelPairSampler",
+    "RandomSymbolicPairSampler",
 ]
 
-class RandomSkelPairSampler(Sampler):
+class RandomSymbolicPairSampler(Sampler):
     def __init__(self, dataset):
         self.dataset = dataset
 
@@ -27,7 +27,7 @@ class RandomSkelPairSampler(Sampler):
         # we shuffle here because we don't want for the first x objects to be the same
         random.shuffle(samples)
         
-        # her we get the corresponding data indices, so if we have object_id = 10
+        # her we get the corresponding indices, so if we have object_id = 10
         # and we have N possible shapeviews, and we paired shape 'a' and 'd', 
         # then  the correspondings data_indicies are (10*N)+a and (10*N)+d
         indices_pair = [[   

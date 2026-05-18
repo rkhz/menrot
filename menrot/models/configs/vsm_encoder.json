@@ -1,6 +1,6 @@
 {
     "model": {
-        "name": "ViT3d",
+        "name": "VisionTransformer3d",
         "config": {
             "image_size": 32,
             "patch_size": 8,

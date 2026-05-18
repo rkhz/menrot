@@ -19,28 +19,35 @@ from shaperenderer.renderer import (
 )
 
 __all__ = [
-    "ShapeSkelBuilder",
-    "ShapeSkelRenderBuilder",
-    "UniformShapeSkelBuilder",
-    "CogShapeSkelBuilder"
+    "MenrotSymbolicBuilder",
+    "MenrotCognitiveBuilder",
+    "MenrotRendererBuilder"
 ]
 
 class _Builder:
     def __init__(self, root_dir, task, split='train'):
         self.root_dir = root_dir
-        self.task = task           # e.g. 'cog' or 'normal'
+        self.task = task           # e.g. 'cognitive', 'symbolic' or 'renderer'
         self.split = split         # e.g. 'train' or 'val'
         
-        self.task_dir = os.path.join(root_dir, f'shape_skel_{task}') 
-        self.data_dir = os.path.join(self.task_dir, split)       
-        self._prepare_directories()
-
-        self.unique_shapes = list(map(ShapeString, pd.read_csv(
-            os.path.join(root_dir, f"shapes-{split}.csv"),
-            usecols=["shape_string"]
-        ).squeeze()))
-        
-        self.metadata_dict = None
+        self.task_dir = os.path.join(root_dir, f'menrot_{task}') 
+        self.data_dir = os.path.join(self.task_dir, split)   
+           
+        if task in ['cognitive', 'symbolic']: 
+            csv_path = os.path.join(os.path.dirname(__file__), "configs", f"shapes-{split}.csv")
+            self._prepare_directories()
+            self.unique_shapes = list(map(ShapeString, pd.read_csv(
+                csv_path,
+                usecols=["shape_string"]
+            ).squeeze()))
+            self.metadata_dict = None
+        else:
+            csv_path = os.path.join(os.path.dirname(__file__), "configs", f"objects_shape-{split}.csv")
+            self.unique_objects = list(map(ShapeString, pd.read_csv(
+                csv_path,
+                usecols=["shape_string"]
+            ).squeeze()))  
+            
 
         #-- renderer utilities 
         self.camera = Camera()
@@ -126,10 +133,10 @@ class _Builder:
             skeleton = shape_string.change_quadrant(Quadrant.I)
         return skeleton
     
-    def save_figure(self, shape_string, phi, data_id):
+    def save_figure(self, shape_string, file_name, phi, theta=-25):
         self.camera.setSphericalPosition(
             r=25,
-            theta=-25,
+            theta=theta,
             phi=phi
         )
          
@@ -141,108 +148,20 @@ class _Builder:
             self.camera
         )
 
-        self.renderer.save_figure_to_file(os.path.join(os.path.join(self.data_dir, 'imag'), f'{data_id}.png'))
+        self.renderer.save_figure_to_file(file_name)
 
     def save_metadata(self):
         metadata_df = pd.DataFrame(self.metadata_dict)
         metadata_df.to_csv(os.path.join(self.data_dir, 'metadata.csv'), index=True)
 
-
-class ShapeSkelBuilder(_Builder):
-    def __init__(self, root_dir, split='train', step_size=5):
-        super().__init__(root_dir=root_dir, task=step_size, split=split)
-
-        self.possible_angles = np.concatenate((
-            np.arange(-30,  31, step_size),  
-            np.arange( 60, 121, step_size), 
-            np.arange(150, 211, step_size),  
-            np.arange(240, 301, step_size) 
-        )) % 360
-
-        self.metadata_dict = {
-            'id': [], 
-            'shape_string': [], 
-            'skeleton': [], 
-            'encoding': [], 
-            'phi_angle': [],
-            'qdrt': []
-        }
-    
-    def update_metadata(self, id_data, shape_string, skeleton, encoding, phi_angle, qdrt):
-        self.metadata_dict['id'].append(id_data)
-        self.metadata_dict['shape_string'].append(str(shape_string))
-        self.metadata_dict['skeleton'].append(str(skeleton))
-        self.metadata_dict['encoding'].append(encoding)
-        self.metadata_dict['phi_angle'].append(phi_angle)
-        self.metadata_dict['qdrt'].append(qdrt)
-
     def run(self):
-        data_id = 0 
-        for i, shape_string_ in enumerate(self.unique_shapes):
-            print(f'Building: {(i+1)/len(self.unique_shapes) * 100:02.0f}%', end='\r')
-            for phi in self.possible_angles :
-                phi = phi % 360
-                
-                qdrt = self._get_quadrant(phi)
-                shape_string = self._get_endpoint(shape_string=shape_string_, phi=phi) 
-                skeleton = self._get_skeleton(shape_string, phi)
-
-                self.save_figure(shape_string, phi, data_id)
-                self.update_metadata(data_id, shape_string_, skeleton, skeleton.encode(), phi, qdrt)
-                data_id += 1
-        self.save_metadata()    
-        print(f'\nData for Shepard and Metzler {self.data_dir} ----> DONE')
-
-
-class UniformShapeSkelBuilder(_Builder):
-    def __init__(self, root_dir, split='train'):
-        super().__init__(root_dir=root_dir, task='uniform', split=split)
-
-        self.rng_angle = np.random.default_rng(seed=42)
-
-        self.metadata_dict = {
-            'id': [], 
-            'shape_string': [], 
-            'skeleton': [], 
-            'encoding': [], 
-            'phi_angle': [],
-            'qdrt': []
-        }
+        """Must be implemented by subclass."""
+        raise NotImplementedError
     
-    def update_metadata(self, id_data, shape_string, skeleton, encoding, phi_angle, qdrt):
-        self.metadata_dict['id'].append(id_data)
-        self.metadata_dict['shape_string'].append(str(shape_string))
-        self.metadata_dict['skeleton'].append(str(skeleton))
-        self.metadata_dict['encoding'].append(encoding)
-        self.metadata_dict['phi_angle'].append(phi_angle)
-        self.metadata_dict['qdrt'].append(qdrt)
 
-    def run(self):
-        data_id = 0 
-        for i, shape_string_ in enumerate(self.unique_shapes):
-            print(f'Building: {(i+1)/len(self.unique_shapes) * 100:02.0f}%', end='\r')
-            qdrt1 = self.rng_angle.uniform(low=-45, high=45, size=42)
-            qdrt2 = self.rng_angle.uniform(low=45, high=135, size=42)
-            qdrt3 = self.rng_angle.uniform(low=135, high=225, size=42)
-            qdrt4 = self.rng_angle.uniform(low=225, high=315, size=42)
-            possible_angles = np.concatenate((qdrt1, qdrt2, qdrt3, qdrt4))
-            for phi in possible_angles :
-                phi = phi % 360
-                
-                qdrt = self._get_quadrant(phi)
-                shape_string = self._get_endpoint(shape_string=shape_string_, phi=phi) 
-                skeleton = self._get_skeleton(shape_string, phi)
-
-                self.save_figure(shape_string, phi, data_id)
-                self.update_metadata(data_id, shape_string_, skeleton, skeleton.encode(), phi, qdrt)
-                data_id += 1
-        self.save_metadata()    
-        print(f'\nData for Shepard and Metzler {self.data_dir} ----> DONE')
-
-
-class CogShapeSkelBuilder(_Builder):      
+class MenrotCognitiveBuilder(_Builder):      
     def __init__(self, root_dir, split='train', repeat=4):
-        super().__init__(root_dir=root_dir, task='cog', split=split)
+        super().__init__(root_dir=root_dir, task='cognitive', split=split)
 
         self.rng_angle = np.random.default_rng(seed=42)
         
@@ -296,18 +215,74 @@ class CogShapeSkelBuilder(_Builder):
                                     
                     data_id = f'{id_exp:03d}_T{id_task:02d}_D{dphi:03d}_M{int(is_mirror)}'
 
-                    self.save_figure(phi=phi_1, shape_string=shape_string_1, data_id=f'{data_id}_{1}')    
-                    self.save_figure(phi=phi_2, shape_string=shape_string_2, data_id=f'{data_id}_{2}') 
+                    self.save_figure(
+                        shape_string=shape_string_1, 
+                        phi=phi_1,
+                        file_name=os.path.join(os.path.join(self.data_dir, 'imag'), f'{data_id}_{1}.png')
+                    )  
+                    self.save_figure(
+                        shape_string=shape_string_2, 
+                        phi=phi_2,
+                        file_name=os.path.join(os.path.join(self.data_dir, 'imag'), f'{data_id}_{2}.png')
+                    )  
 
                     
                     self.update_metadata(data_id, shape_string_, skeleton_1, skeleton_2, is_mirror, dphi, rot_qdrt, phi_1, phi_2)
                     id_task += 1
 
         self.save_metadata()           
-        print(f'Data for Shepard and Metzler {self.data_dir} ----> DONE')
+        print(f'Data {self.data_dir} ----> DONE')
 
+class MenrotSymbolicBuilder(_Builder):
+    def __init__(self, root_dir, split='train'):
+        super().__init__(root_dir=root_dir, task='symbolic', split=split)
 
-class ShapeSkelRenderBuilder(_Builder):
+        self.rng_angle = np.random.default_rng(seed=42)
+
+        self.metadata_dict = {
+            'id': [], 
+            'shape_string': [], 
+            'skeleton': [], 
+            'encoding': [], 
+            'phi_angle': [],
+            'qdrt': []
+        }
+    
+    def update_metadata(self, id_data, shape_string, skeleton, encoding, phi_angle, qdrt):
+        self.metadata_dict['id'].append(id_data)
+        self.metadata_dict['shape_string'].append(str(shape_string))
+        self.metadata_dict['skeleton'].append(str(skeleton))
+        self.metadata_dict['encoding'].append(encoding)
+        self.metadata_dict['phi_angle'].append(phi_angle)
+        self.metadata_dict['qdrt'].append(qdrt)
+
+    def run(self):
+        data_id = 0 
+        for i, shape_string_ in enumerate(self.unique_shapes):
+            print(f'Building: {(i+1)/len(self.unique_shapes) * 100:02.0f}%', end='\r')
+            qdrt1 = self.rng_angle.uniform(low=-45, high=45, size=42)
+            qdrt2 = self.rng_angle.uniform(low=45, high=135, size=42)
+            qdrt3 = self.rng_angle.uniform(low=135, high=225, size=42)
+            qdrt4 = self.rng_angle.uniform(low=225, high=315, size=42)
+            possible_angles = np.concatenate((qdrt1, qdrt2, qdrt3, qdrt4))
+            for phi in possible_angles :
+                phi = phi % 360
+                
+                qdrt = self._get_quadrant(phi)
+                shape_string = self._get_endpoint(shape_string=shape_string_, phi=phi) 
+                skeleton = self._get_skeleton(shape_string, phi)
+
+                self.save_figure(
+                    shape_string=shape_string, 
+                    phi=phi,
+                    file_name=os.path.join(os.path.join(self.data_dir, 'imag'), f'{data_id}.png')
+                )
+                self.update_metadata(data_id, shape_string_, skeleton, skeleton.encode(), phi, qdrt)
+                data_id += 1
+        self.save_metadata()    
+        print(f'\nData {self.data_dir} ----> DONE')
+
+class MenrotRendererBuilder(_Builder):
     def __init__(
         self, 
         root_dir: str, 
@@ -315,53 +290,39 @@ class ShapeSkelRenderBuilder(_Builder):
         num_views: int=250,
         seed: Optional[int] = None
     ) -> None:
-        ####################################
-        self.shape_params = {
-        "facecolor": "white",
-        "edgecolor": "black",
-        "edgewidth": 0.8
-        }
-        renderer_params = {
-            "imgsize": (128, 128),
-            "bgcolor": "white",
-            "dpi": 100
-        }
-
-        self.camera = Camera()
-        self.renderer = Renderer(**renderer_params)
-        ####################################
-
-        self.split = split
-        self.data_dir = os.path.join(root_dir, f'objects_shape-{split}.csv')
-        self.save_dir = os.path.join(root_dir, f'shape_skel_renderer_{split}')
+        super().__init__(root_dir=root_dir, task='renderer', split=split)
         
-        dataframe = pd.read_csv(self.data_dir)['shape_string']
-        self.shapes = list(map(ShapeString, dataframe))
-        
-        self.num_scenes = len(self.shapes)
+        self.num_scenes = len(self.unique_objects)
         self.num_imgs_per_scene = num_views
         
-        self.rng = np.random.default_rng(seed=seed)
-        
-    
+        self.rng = np.random.default_rng(seed=seed)  
+
     def run(self):
         for idx in range(self.num_scenes):
             print(f' Generating shape {1+idx:03d}/{self.num_scenes}')
-            os.makedirs(os.path.join(self.save_dir, f'{self.shapes[idx].__repr__()}'), exist_ok=True)
+            os.makedirs(os.path.join(self.data_dir, f'{self.unique_objects[idx].__repr__()}'), exist_ok=True)
 
             metadata = {}
             for view_idx in range(self.num_imgs_per_scene):
-                shape = self.shapes[idx]
+                shape = self.unique_objects[idx]
                 theta, phi = utils.sample_on_sphere(low=0.05, high=0.95, size=(1, 1), rng=self.rng)
                 skeleton = self._get_skeleton(shape, theta=theta, phi=phi)
 
-                metadata.update({str(f'{view_idx:05d}'): {"azimuth": float(phi[0]), "elevation": float(-theta[0]), "skeleton": skeleton}})
-                self._save_data(view_idx, shape=shape, theta=theta, phi=phi)
-
-            file_path = os.path.join(os.path.join(self.save_dir, f'{self.shapes[idx].__repr__()}'), "render_params.json" )
+                metadata.update({str(f'{view_idx:05d}'): {"azimuth": float(phi[0]), "elevation": float(-theta[0]), "skeleton": skeleton.__repr__()}})
+                
+                _file_name = str(f'{view_idx:05d}')  
+                self.save_figure(
+                    shape_string=shape, 
+                    theta=theta,
+                    phi=phi,
+                    file_name=os.path.join(os.path.join(self.data_dir, shape.__repr__()), f'{_file_name}.png')
+                )
+                                
+            file_path = os.path.join(os.path.join(self.data_dir, f'{self.unique_objects[idx].__repr__()}'), "render_params.json" )
             with open(file_path, 'w') as f:
                 json.dump(metadata, f, indent=4)
-
+        print(f'Data {self.data_dir} ----> DONE')
+        
     def _get_skeleton(self, shape_string, phi, theta):
         shape_string = self._get_endpoint(shape_string, theta=theta, phi=phi)
         phi = phi % 360
@@ -386,25 +347,9 @@ class ShapeSkelRenderBuilder(_Builder):
         else:
             skeleton =  skeleton
             
-        return skeleton.encode()
-    
-    
-    def _save_data(self, view_idx, shape, theta, phi):
-        shape_object = Object3D(
-                shape=MetzlerShape(shape),
-                **self.shape_params
-            )
-            # position the camera
-        self.camera.setSphericalPosition(
-            r=25,
-            theta=theta,
-            phi=phi
-        )
+        return skeleton #.encode()
         
-        self.renderer.render(shape_object, self.camera)
-        _file_name = str(f'{view_idx:05d}')
-        self.renderer.save_figure_to_file(os.path.join(self.save_dir, f'{shape.__repr__()}/{_file_name}.png'))
-    
+
     def __len__(self):
-        return len(self.shapes) * self.num_views
+        return len(self.unique_objects) * self.num_views
     
