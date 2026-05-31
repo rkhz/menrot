@@ -113,6 +113,10 @@ menrot/
 │   │   ├── checkpoint.py
 │   │   └── config.py
 │   └── __init__.py
+├── human_data/
+│   ├── mr_vr_action.csv
+│   ├── mr_vr_no_action.csv
+│   └── README.md
 ├── scripts/
 │   └── build_dataset.py
 ├── LICENSE
